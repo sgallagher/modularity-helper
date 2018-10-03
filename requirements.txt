@@ -1,2 +1,6 @@
 gunicorn
 Flask
+koji
+ModulemdTranslationHelpers
+babel
+apscheduler
