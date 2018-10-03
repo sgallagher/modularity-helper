@@ -14,6 +14,9 @@ application = Flask(__name__)
 
 koji_url = getenv('KOJI_URL', KOJI_URL)
 
+@application.route("/alive")
+def heartbeat():
+    return jsonify({'result': 'Succeeded'})
 
 @application.route("/pot")
 def get_pot():
