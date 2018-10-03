@@ -1,7 +1,11 @@
 from os import getenv
 from io import BytesIO
+try:
+    from koji import ClientSession as ServerProxy
+except ImportError:
+    from xmlrpc.client import ServerProxy
+
 from babel.messages import pofile
-from koji import ClientSession as KojiClientSession
 from flask import Flask, request, jsonify
 from ModulemdTranslationHelpers import get_module_catalog_from_tags
 from ModulemdTranslationHelpers.Fedora import get_fedora_rawhide_version
@@ -23,7 +27,7 @@ def get_pot():
     result = dict()
     result['state'] = 'Failed'
 
-    koji_session = KojiClientSession(koji_url)
+    koji_session = ServerProxy(koji_url)
 
     if 'branch' not in request.args:
         input_branch = 'rawhide'
@@ -44,7 +48,7 @@ def get_pot():
     potfile_io = BytesIO()
     pofile.write_po(potfile_io, catalog, sort_by_file=True)
 
-    result['potfile'] = potfile_io.getvalue()
+    result['potfile'] = potfile_io.getvalue().decode('utf8')
 
     result['state'] = 'Succeeded'
 
