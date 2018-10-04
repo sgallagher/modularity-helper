@@ -1,19 +1,10 @@
-FROM fedora:latest
+FROM fedora-modularity/modularity-helper-deps
+
 LABEL \
     name="Service to manage translations of Fedora Modules" \
     vendor="The Fedora Project" \
     license="MIT" \
     build-date=""
-
-RUN dnf -y install \
-    --enablerepo=updates-testing \
-    python3-gunicorn \
-    python3-flask \
-    python3-ModulemdTranslationHelpers \
-    python3-APScheduler \
-    python3-gobject-base \
-    libmodulemd \
-    && dnf -y clean all
 
 COPY modularity-helper.py .
 
