@@ -92,22 +92,16 @@ def get_pot():
     return jsonify(result)
 
 
-@application.route("/strings/update")
-def update_pot(branch=None):
+def do_update_pot(koji_session, branch, debug=False):
     result = dict()
     result['state'] = 'Failed'
-
-    koji_session = ServerProxy(koji_url)
-
-    if not branch:
-        branch = get_branch(koji_session, request.args)
 
     result['branch'] = branch
 
     # Retrieve content
     tags = get_tags_for_fedora_branch(branch)
     catalog = get_module_catalog_from_tags(koji_session, tags,
-                                           application.debug)
+                                           debug)
 
     with TemporaryDirectory() as tdir:
         chdir(tdir)
@@ -125,7 +119,7 @@ def update_pot(branch=None):
         with open('zanata.ini', 'w') as inifile:
             inifile.write('[servers]\n')
             inifile.write('zanata.url=%s\n' % zanata_url)
-            inifile.write('zanata.username=%s\n'% zanata_user)
+            inifile.write('zanata.username=%s\n' % zanata_user)
             inifile.write('zanata.key=%s\n' % zanata_key)
 
         # Ensure that the requested branch exists in Zanata
@@ -168,7 +162,19 @@ def update_pot(branch=None):
 
     result['state'] = 'Succeeded'
     result['message'] = 'Uploaded translatable strings for %s to Zanata' % (
-                        branch)
+        branch)
+
+    return result
+
+
+@application.route("/strings/update")
+def update_pot(branch=None):
+    koji_session = ServerProxy(koji_url)
+
+    if not branch:
+        branch = get_branch(koji_session, request.args)
+
+    result = do_update_pot(koji_session, branch, debug=application.debug)
 
     return jsonify(result)
 
@@ -178,11 +184,13 @@ def update_pot_for_all_branches():
     # TODO: Detect this automatically
 
     for branch in ['f28', 'f29', 'f30']:
-        if application.debug:
-            print("Updating translations for %s" % branch)
-        update_pot(branch)
+        application.logger.info("Updating translations for %s" % branch)
 
-    pass
+        koji_session = ServerProxy(koji_url)
+        result = do_update_pot(koji_session, branch)
+        if result['state'] == 'Failed':
+            application.logger.error("%d: %s" % (
+                result['errorcode'], result['message']))
 
 
 application_init()
