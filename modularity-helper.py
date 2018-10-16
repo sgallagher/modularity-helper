@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 from os import getenv, chdir
 from io import BytesIO
 try:
@@ -6,6 +8,8 @@ except ImportError:
     from xmlrpc.client import ServerProxy
 
 import subprocess
+import logging
+
 
 from babel.messages import pofile
 from flask import Flask, request, jsonify
@@ -18,14 +22,27 @@ from ModulemdTranslationHelpers.Fedora import KOJI_URL
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from datetime import datetime, timedelta
+
 application = Flask(__name__)
 
 
-def application_init():
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(update_pot_for_all_branches, 'interval', minutes=30)
-    scheduler.start()
+potfile_name = getenv('POTFILE_NAME',
+                      default='fedora-modularity-translations.pot')
 
+zanata_url = getenv('ZANATA_URL',
+                    default='https://fedora.zanata.org')
+
+zanata_project = getenv('ZANATA_PROJECT',
+                        default='fedora-modularity-translations')
+
+zanata_user = getenv('ZANATA_USER')
+zanata_key = getenv('ZANATA_KEY')
+
+koji_url = getenv('KOJI_URL', KOJI_URL)
+
+
+def application_init():
     # Validate that we have mandatory env vars
     zanata_user = getenv('ZANATA_USER')
     if not zanata_user:
@@ -35,17 +52,19 @@ def application_init():
     if not zanata_key:
         raise PermissionError('No Zanata key specified')
 
+    application.logger.setLevel(logging.INFO)
 
-potfile_name = getenv('POTFILE_NAME',
-                      default='fedora-modularity-translations.pot')
-zanata_url = getenv('ZANATA_URL',
-                    default='https://fedora.zanata.org')
-zanata_project = getenv('ZANATA_PROJECT',
-                        default='fedora-modularity-translations')
-zanata_user = getenv('ZANATA_USER')
-zanata_key = getenv('ZANATA_KEY')
+    scheduler = BackgroundScheduler()
 
-koji_url = getenv('KOJI_URL', KOJI_URL)
+    # Update translatable strings every 30 minutes
+    scheduler.add_job(update_pot_for_all_branches,
+                      'interval', minutes=30)
+
+    # And once, five seconds after startup
+    scheduler.add_job(update_pot_for_all_branches, 'date',
+                      run_date=datetime.now()+timedelta(0, 5))
+
+    scheduler.start()
 
 
 def get_branch(koji_session, args):
@@ -97,6 +116,8 @@ def do_update_pot(koji_session, branch, debug=False):
     result['state'] = 'Failed'
 
     result['branch'] = branch
+
+    application.logger.info('Updating translations for %s' % branch)
 
     # Retrieve content
     tags = get_tags_for_fedora_branch(branch)
@@ -174,7 +195,8 @@ def update_pot(branch=None):
     if not branch:
         branch = get_branch(koji_session, request.args)
 
-    result = do_update_pot(koji_session, branch, debug=application.debug)
+    result = do_update_pot(koji_session, branch,
+                           debug=application.debug)
 
     return jsonify(result)
 
@@ -184,8 +206,6 @@ def update_pot_for_all_branches():
     # TODO: Detect this automatically
 
     for branch in ['f28', 'f29', 'f30']:
-        application.logger.info("Updating translations for %s" % branch)
-
         koji_session = ServerProxy(koji_url)
         result = do_update_pot(koji_session, branch)
         if result['state'] == 'Failed':
