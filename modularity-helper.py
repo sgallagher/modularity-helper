@@ -52,7 +52,11 @@ def application_init():
     if not zanata_key:
         raise PermissionError('No Zanata key specified')
 
-    application.logger.setLevel(logging.INFO)
+    flask_debug = getenv('FLASK_ENV')
+    if flask_debug is not None:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
 
     scheduler = BackgroundScheduler()
 
@@ -74,8 +78,7 @@ def get_branch(koji_session, args):
         input_branch = str(args['branch'])
 
     if input_branch == 'rawhide':
-        branch = get_fedora_rawhide_version(koji_session,
-                                            application.debug)
+        branch = get_fedora_rawhide_version(koji_session)
     else:
         branch = input_branch
 
@@ -98,8 +101,7 @@ def get_pot():
 
     # Retrieve content
     tags = get_tags_for_fedora_branch(result['branch'])
-    catalog = get_module_catalog_from_tags(koji_session, tags,
-                                           application.debug)
+    catalog = get_module_catalog_from_tags(koji_session, tags)
 
     potfile_io = BytesIO()
     pofile.write_po(potfile_io, catalog, sort_by_file=True)
@@ -111,7 +113,7 @@ def get_pot():
     return jsonify(result)
 
 
-def do_update_pot(koji_session, branch, debug=False):
+def do_update_pot(koji_session, branch):
     result = dict()
     result['state'] = 'Failed'
 
@@ -121,8 +123,7 @@ def do_update_pot(koji_session, branch, debug=False):
 
     # Retrieve content
     tags = get_tags_for_fedora_branch(branch)
-    catalog = get_module_catalog_from_tags(koji_session, tags,
-                                           debug)
+    catalog = get_module_catalog_from_tags(koji_session, tags)
 
     with TemporaryDirectory() as tdir:
         chdir(tdir)
@@ -152,14 +153,16 @@ def do_update_pot(koji_session, branch, debug=False):
             '--user-config', 'zanata.ini',
         ]
         status = subprocess.run(zanata_args, capture_output=True)
-        if status.returncode or application.debug:
-            print(status.stderr.decode('utf-8'))
-            print(status.stdout.decode('utf-8'))
         if status.returncode:
+            logging.warning("Error running Zanata CLI to ensure branch "
+                            "existence.")
+            logging.warning("STDOUT: %s" % status.stdout.decode('utf-8'))
+            logging.warning("STDERR: %s" % status.stderr.decode('utf-8'))
+
             result['errorcode'] = status.returncode
             result['message'] = "Could not create branch in Zanata. " \
                                 "Permission error?"
-            return jsonify(result)
+            return result
 
         # Update the translatable strings for this branch
         zanata_args = [
@@ -172,14 +175,16 @@ def do_update_pot(koji_session, branch, debug=False):
             '--user-config', 'zanata.ini',
         ]
         status = subprocess.run(zanata_args, capture_output=True)
-        if status.returncode or application.debug:
-            print(status.stderr.decode('utf-8'))
-            print(status.stdout.decode('utf-8'))
         if status.returncode:
+            logging.warning("Error running Zanata CLI to update translatable"
+                            "strings.")
+            logging.warning("STDOUT: %s" % status.stdout.decode('utf-8'))
+            logging.warning("STDERR: %s" % status.stderr.decode('utf-8'))
+
             result['errorcode'] = status.returncode
             result['message'] = "Could not update strings in Zanata."
 
-            return jsonify(result)
+            return result
 
     result['state'] = 'Succeeded'
     result['message'] = 'Uploaded translatable strings for %s to Zanata' % (
@@ -195,8 +200,7 @@ def update_pot(branch=None):
     if not branch:
         branch = get_branch(koji_session, request.args)
 
-    result = do_update_pot(koji_session, branch,
-                           debug=application.debug)
+    result = do_update_pot(koji_session, branch)
 
     return jsonify(result)
 
